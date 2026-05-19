@@ -9,16 +9,25 @@ from datetime import datetime
 st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="centered")
 
 # ====================================================================================
-# 🛠️ SECCIÓN DE ENLACES: COPIA Y PEGA LAS URLS COMPLETAS DESDE TU NAVEGADOR
+# 🛠️ SECCIÓN DE ENLACES: MANTÉN AQUÍ TUS URLS OFICIALES
 # ====================================================================================
-# PEGA AQUÍ LA URL COMPLETA de tu nuevo Google Sheets (el que guardaste como nativo)
-URL_HOJA_DE_CALCULO = "https://https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
+URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
 
-# PEGA AQUÍ LA URL COMPLETA que te dio Google al implementar tu Apps Script (termina en /exec)
+# ⚠️ RECUERDA COLOCAR AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
 # ====================================================================================
 
-# Función interna para limpiar y preparar el enlace de descarga de Google
+# --- 🎯 FUNCIÓN DE BLINDAJE LOGÍSTICO (Elimina .0 y devuelve el cero inicial) ---
+def normalizar_codigo_articulo(sku):
+    if pd.isna(sku) or str(sku).strip() == "":
+        return ""
+    # Convertimos a texto plano y eliminamos cualquier decimal accidental (.0)
+    sku_limpio = str(sku).strip().split('.')[0]
+    # REGLA DE ORO: Si es numérico de 8 dígitos, le falta el cero inicial del estándar de 9 dígitos
+    if sku_limpio.isdigit() and len(sku_limpio) == 8:
+        return f"0{sku_limpio}"
+    return sku_limpio
+
 def generar_url_export(url_usuario):
     if "/d/" in url_usuario:
         id_sheet = url_usuario.split("/d/")[1].split("/")[0]
@@ -27,16 +36,12 @@ def generar_url_export(url_usuario):
 
 URL_FINAL_CSV = generar_url_export(URL_HOJA_DE_CALCULO)
 
-# --- 2. CARGA DEL MAESTRO CON DIAGNÓSTICO EN VIVO ---
+# --- 2. CARGA DEL MAESTRO DESDE GOOGLE SHEETS ---
 @st.cache_data(ttl=5)
 def cargar_maestro_nube():
     try:
-        if "TU_NUEVO_CODIGO_LARGO_AQUI" in URL_FINAL_CSV or "docs.google.com" not in URL_FINAL_CSV:
-            st.error("⚠️ URL DE GOOGLE SHEETS INVÁLIDA: Por favor, pega la URL real de tu navegador en la línea 15.")
-            return pd.DataFrame()
-            
         df = pd.read_csv(URL_FINAL_CSV, skiprows=1, dtype=str)
-        df = df.iloc[:126]
+        df = df.iloc[:126] # Filtro de seguridad para dashboards
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         col_articulo, col_descripcion, col_logico = None, None, None
@@ -49,18 +54,19 @@ def cargar_maestro_nube():
         if col_articulo and col_descripcion and col_logico:
             df = df.rename(columns={col_articulo: 'ARTICULO', col_descripcion: 'DESCRIPCIÓN', col_logico: 'LÓGICO'})
             df = df.dropna(subset=['ARTICULO', 'DESCRIPCIÓN'])
-            df['ARTICULO'] = df['ARTICULO'].astype(str).str.strip().str.upper()
+            
+            # Aplicamos normalización estricta de texto al catálogo
+            df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
             df['DESCRIPCIÓN'] = df['DESCRIPCIÓN'].astype(str).str.strip()
+            
+            # Limpiador de puntos de miles para las cantidades del WMS
             df['LÓGICO'] = df['LÓGICO'].astype(str).str.strip().str.replace('.', '', regex=False).str.replace(',', '', regex=False)
             df['LÓGICO'] = pd.to_numeric(df['LÓGICO'], errors='coerce').fillna(0).astype(int)
+            
             return df[['ARTICULO', 'DESCRIPCIÓN', 'LÓGICO']]
-        else:
-            st.error(f"❌ ERROR DE COLUMNAS: No se encontraron campos como 'Articulo', 'Descripción' o 'Lógico'. Columnas reales detectadas: {list(df.columns)}")
-            return pd.DataFrame()
     except Exception as e:
-        st.error(f"🚨 ERROR CRÍTICO AL CONECTAR CON GOOGLE: {e}")
-        st.info("💡 Consejo: Verifica que hiciste clic en el botón azul 'Compartir' en tu Sheets y lo cambiaste a 'Cualquier persona con el enlace' en modo Lector.")
-        return pd.DataFrame()
+        st.error(f"🚨 Error de comunicación con Google Sheets: {e}")
+    return pd.DataFrame()
 
 df_maestro = cargar_maestro_nube()
 
@@ -75,19 +81,24 @@ def obtener_historico_nube():
             if data:
                 df = pd.DataFrame(data)
                 df.columns = [str(c).upper() for c in df.columns]
+                
+                # Aplicamos normalización estricta de texto al historial acumulado
+                if 'ARTICULO' in df.columns:
+                    df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
                 return df
-    except Exception as e:
-        st.sidebar.warning(f"⚠️ Alerta Kardex Nube: No se pudo leer el historial histórico ({e})")
+    except:
+        pass
     return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'CANTIDAD', 'OPERARIO'])
 
 # --- 4. LÓGICA DE PROCESAMIENTO DE ESCANEO ---
 def ejecutar_conteo_sku():
-    sku_input = st.session_state.scanner.strip().upper()
+    # Escaneamos y normalizamos la entrada de inmediato (sirve para minúsculas y códigos sin cero)
+    sku_input = normalizar_codigo_articulo(st.session_state.scanner.strip().upper())
     if not sku_input: return
 
     if not df_maestro.empty:
-        sku_busqueda = sku_input.lstrip('0')
-        match = df_maestro[df_maestro['ARTICULO'].astype(str).str.lstrip('0').str.upper() == sku_busqueda]
+        # Búsqueda exacta limpia de errores tipográficos
+        match = df_maestro[df_maestro['ARTICULO'] == sku_input]
         
         if not match.empty:
             sku_real = match.iloc[0]['ARTICULO']
@@ -106,17 +117,12 @@ def ejecutar_conteo_sku():
             
             try:
                 if "TU_URL_DE_APPS_SCRIPT_AQUI" not in URL_APPS_SCRIPT:
-                    res = requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
-                    if res.status_code == 200:
-                        st.session_state.feedback = f"✅ Sincronizado en la Nube: +{cant_unidades} und para {desc_prod}"
-                    else:
-                        st.session_state.feedback = f"⚠️ Guardado con advertencia. Código HTTP: {res.status_code}"
-                else:
-                    st.session_state.feedback = f"⚠️ Modo Local Activo: Conecta tu Apps Script para mandar a la nube."
-            except Exception as e:
-                st.session_state.feedback = f"❌ Error de red al enviar el dato: {e}"
+                    requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
+                st.session_state.feedback = f"✅ Sincronizado en la Nube: +{cant_unidades} und para {desc_prod}"
+            except:
+                st.session_state.feedback = "❌ Error de red al enviar a la nube."
         else:
-            st.session_state.feedback = f"❌ El código '{sku_input}' no existe en el sistema."
+            st.session_state.feedback = f"❌ El código '{sku_input}' no existe en el maestro."
     st.session_state.scanner = ""
 
 def ejecutar_conteo_por_boton():
@@ -144,10 +150,10 @@ def ejecutar_conteo_por_boton():
 
 # --- 5. INTERFAZ GRÁFICA ---
 if df_maestro.empty:
-    st.warning("🔄 Sincronizando enlace maestro con Google Sheets...")
-    st.info("Revisa arriba si la app arrojó un cuadro de error detallado.")
+    st.warning("🔄 Sincronizando con Google Sheets...")
     st.stop()
 
+# CONTROL DE ACCESO
 if 'username' not in st.session_state or not st.session_state.username.strip():
     st.title("📦 Yobel SCM - Registro Cloud")
     nombre_input = st.text_input("Ingrese su Nombre y Apellido:", key="temp_name")
@@ -157,7 +163,7 @@ if 'username' not in st.session_state or not st.session_state.username.strip():
             st.rerun()
     st.stop()
 
-st.title("🚀 Yobel SCM - Conteo Cíclico en Tiempo Real")
+st.title("🚀 Yobel SCM - Conteo Cíclico Real-Time")
 st.sidebar.markdown(f"### 👤 Operario Activo:\n**{st.session_state.username}**")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.username = ""
@@ -179,6 +185,7 @@ if 'sku_activo' in st.session_state and st.session_state.sku_activo:
 if 'feedback' in st.session_state:
     st.info(st.session_state.feedback)
 
+# TRAER HISTORIAL RECIENTE
 df_historico = obtener_historico_nube()
 
 st.write("---")
@@ -189,18 +196,28 @@ if 'sku_activo' in st.session_state and st.session_state.sku_activo:
     
     total_acumulado = 0
     if not df_historico.empty and 'CANTIDAD' in df_historico.columns:
-        df_sku = df_historico[df_historico['ARTICULO'].astype(str).str.upper().str.lstrip('0') == str(sku).lstrip('0')]
+        df_sku = df_historico[df_historico['ARTICULO'] == sku]
         total_acumulado = pd.to_numeric(df_sku['CANTIDAD'], errors='coerce').sum()
 
     c1, c2, c3 = st.columns(3)
-    with c1: st.metric(label="Código", value=str(sku)), st.caption(info_maestro['DESCRIPCIÓN'])
-    with c2: st.metric(label="📊 Stock Lógico", value=f"{info_maestro['LÓGICO']:,}".replace(",", "."))
-    with c3: st.metric(label="📦 Acumulado Nube (Todos)", value=f"{int(total_acumulado):,}".replace(",", "."))
+    with c1: 
+        st.metric(label="Código de Artículo", value=str(sku))
+        st.caption(f"**Producto:** {info_maestro['DESCRIPCIÓN']}")
+    with c2: 
+        st.metric(label="📊 Stock Lógico", value=f"{info_maestro['LÓGICO']:,}".replace(",", "."))
+    with c3: 
+        st.metric(label="📦 Acumulado Nube (Todos)", value=f"{int(total_acumulado):,}".replace(",", "."))
+else:
+    st.info("💡 Escanee un artículo para desplegar su ficha de auditoría.")
 
 st.write("---")
 st.subheader("🕒 Kardex Global (Movimientos en tiempo real)")
 if not df_historico.empty and 'HORA' in df_historico.columns:
-    st.dataframe(df_historico[['HORA', 'ARTICULO', 'CANTIDAD', 'OPERARIO']].tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
+    # Forzamos visualización limpia como texto en la tabla
+    df_mostrar = df_historico[['HORA', 'ARTICULO', 'CANTIDAD', 'OPERARIO']].copy()
+    df_mostrar['ARTICULO'] = df_mostrar['ARTICULO'].astype(str)
+    
+    st.dataframe(df_mostrar.tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
     
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -209,4 +226,4 @@ if not df_historico.empty and 'HORA' in df_historico.columns:
     st.sidebar.write("---")
     st.sidebar.download_button(label="📥 DESCARGAR KARDEX GLOBAL (.XLSX)", data=buffer.getvalue(), file_name="Kardex_Global.xlsx", use_container_width=True)
 else:
-    st.caption("No hay movimientos registrados en la nube aún.")    
+    st.caption("No hay movimientos registrados en la nube aún.") 

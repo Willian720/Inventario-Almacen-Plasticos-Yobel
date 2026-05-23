@@ -14,16 +14,14 @@ st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="cente
 URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
 
 # ⚠️ RECUERDA COLOCAR AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
+URL_APPS_SCRIPT = "TU_URL_DE_APPS_SCRIPT_AQUI"
 # ====================================================================================
 
 # --- 🎯 FUNCIÓN DE BLINDAJE LOGÍSTICO (Elimina .0 y devuelve el cero inicial) ---
 def normalizar_codigo_articulo(sku):
     if pd.isna(sku) or str(sku).strip() == "":
         return ""
-    # Convertimos a texto plano y eliminamos cualquier decimal accidental (.0)
     sku_limpio = str(sku).strip().split('.')[0]
-    # REGLA DE ORO: Si es numérico de 8 dígitos, le falta el cero inicial del estándar de 9 dígitos
     if sku_limpio.isdigit() and len(sku_limpio) == 8:
         return f"0{sku_limpio}"
     return sku_limpio
@@ -41,7 +39,7 @@ URL_FINAL_CSV = generar_url_export(URL_HOJA_DE_CALCULO)
 def cargar_maestro_nube():
     try:
         df = pd.read_csv(URL_FINAL_CSV, skiprows=1, dtype=str)
-        df = df.iloc[:126] # Filtro de seguridad para dashboards
+        df = df.iloc[:126] 
         df.columns = [str(c).strip().upper() for c in df.columns]
         
         col_articulo, col_descripcion, col_logico = None, None, None
@@ -55,11 +53,9 @@ def cargar_maestro_nube():
             df = df.rename(columns={col_articulo: 'ARTICULO', col_descripcion: 'DESCRIPCIÓN', col_logico: 'LÓGICO'})
             df = df.dropna(subset=['ARTICULO', 'DESCRIPCIÓN'])
             
-            # Aplicamos normalización estricta de texto al catálogo
             df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
             df['DESCRIPCIÓN'] = df['DESCRIPCIÓN'].astype(str).str.strip()
             
-            # Limpiador de puntos de miles para las cantidades del WMS
             df['LÓGICO'] = df['LÓGICO'].astype(str).str.strip().str.replace('.', '', regex=False).str.replace(',', '', regex=False)
             df['LÓGICO'] = pd.to_numeric(df['LÓGICO'], errors='coerce').fillna(0).astype(int)
             
@@ -73,7 +69,7 @@ df_maestro = cargar_maestro_nube()
 # --- 3. LECTURA DEL KARDEX DESDE LA NUBE ---
 def obtener_historico_nube():
     if "TU_URL_DE_APPS_SCRIPT_AQUI" in URL_APPS_SCRIPT:
-        return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'CANTIDAD', 'OPERARIO'])
+        return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
     try:
         response = requests.get(URL_APPS_SCRIPT, timeout=5)
         if response.status_code == 200:
@@ -82,35 +78,35 @@ def obtener_historico_nube():
                 df = pd.DataFrame(data)
                 df.columns = [str(c).upper() for c in df.columns]
                 
-                # Aplicamos normalización estricta de texto al historial acumulado
                 if 'ARTICULO' in df.columns:
                     df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
                 return df
     except:
         pass
-    return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'CANTIDAD', 'OPERARIO'])
+    return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
 
 # --- 4. LÓGICA DE PROCESAMIENTO DE ESCANEO ---
 def ejecutar_conteo_sku():
-    # Escaneamos y normalizamos la entrada de inmediato (sirve para minúsculas y códigos sin cero)
     sku_input = normalizar_codigo_articulo(st.session_state.scanner.strip().upper())
     if not sku_input: return
 
     if not df_maestro.empty:
-        # Búsqueda exacta limpia de errores tipográficos
         match = df_maestro[df_maestro['ARTICULO'] == sku_input]
         
         if not match.empty:
             sku_real = match.iloc[0]['ARTICULO']
             st.session_state.sku_activo = sku_real
             cant_unidades = int(st.session_state.cantidad_paso)
+            lote_input = st.session_state.lote_paso.strip().upper() if st.session_state.lote_paso.strip() else "SIN LOTE"
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
             
+            # 📦 Se añade la variable 'lote' al paquete que viaja a Google Drive
             payload = {
                 "hora": datetime.now().strftime("%H:%M:%S"),
                 "articulo": sku_real,
                 "descripcion": desc_prod,
+                "lote": lote_input,
                 "cantidad": cant_unidades,
                 "operario": op_actual
             }
@@ -118,7 +114,7 @@ def ejecutar_conteo_sku():
             try:
                 if "TU_URL_DE_APPS_SCRIPT_AQUI" not in URL_APPS_SCRIPT:
                     requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
-                st.session_state.feedback = f"✅ Sincronizado en la Nube: +{cant_unidades} und para {desc_prod}"
+                st.session_state.feedback = f"✅ Sincronizado en la Nube: +{cant_unidades} und (Lote: {lote_input}) para {desc_prod}"
             except:
                 st.session_state.feedback = "❌ Error de red al enviar a la nube."
         else:
@@ -131,6 +127,7 @@ def ejecutar_conteo_por_boton():
         match = df_maestro[df_maestro['ARTICULO'] == sku_real]
         if not match.empty:
             cant_unidades = int(st.session_state.cantidad_paso)
+            lote_input = st.session_state.lote_paso.strip().upper() if st.session_state.lote_paso.strip() else "SIN LOTE"
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
             
@@ -138,13 +135,14 @@ def ejecutar_conteo_por_boton():
                 "hora": datetime.now().strftime("%H:%M:%S"),
                 "articulo": sku_real,
                 "descripcion": desc_prod,
+                "lote": lote_input,
                 "cantidad": cant_unidades,
                 "operario": op_actual
             }
             try:
                 if "TU_URL_DE_APPS_SCRIPT_AQUI" not in URL_APPS_SCRIPT:
                     requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
-                st.session_state.feedback = f"✅ Añadido a la Nube: +{cant_unidades} und para {desc_prod}"
+                st.session_state.feedback = f"✅ Añadido a la Nube: +{cant_unidades} und (Lote: {lote_input}) para {desc_prod}"
             except:
                 st.session_state.feedback = "❌ Error de red al sumar unidades."
 
@@ -171,9 +169,13 @@ if st.sidebar.button("Cerrar Sesión"):
     st.rerun()
 
 st.markdown("### 📥 Captura de Datos")
-col_cant, col_scan = st.columns([1, 3])
+
+# Repartimos la fila en 3 columnas: Cantidad, Lote y Escáner
+col_cant, col_lote, col_scan = st.columns([1, 1.5, 2.5])
 with col_cant:
     st.number_input("Cantidad:", min_value=1, value=1, step=1, key="cantidad_paso")
+with col_lote:
+    st.text_input("Lote del Artículo:", value="", placeholder="Ej: L2026", key="lote_paso")
 with col_scan:
     st.text_input("Escanear Artículo:", key="scanner", on_change=ejecutar_conteo_sku)
 
@@ -213,17 +215,21 @@ else:
 st.write("---")
 st.subheader("🕒 Kardex Global (Movimientos en tiempo real)")
 if not df_historico.empty and 'HORA' in df_historico.columns:
-    # Forzamos visualización limpia como texto en la tabla
-    df_mostrar = df_historico[['HORA', 'ARTICULO', 'CANTIDAD', 'OPERARIO']].copy()
+    # Mostramos las columnas incluyendo LOTE de manera ordenada
+    columnas_visibles = ['HORA', 'ARTICULO', 'LOTE', 'CANTIDAD', 'OPERARIO']
+    # Filtro por si alguna fila vieja de la nube no tiene la columna Lote armada
+    columnas_validas = [col for col in columnas_visibles if col in df_historico.columns]
+    
+    df_mostrar = df_historico[columnas_validas].copy()
     df_mostrar['ARTICULO'] = df_mostrar['ARTICULO'].astype(str)
     
     st.dataframe(df_mostrar.tail(5).sort_index(ascending=False), use_container_width=True, hide_index=True)
     
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_historico[['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'CANTIDAD', 'OPERARIO']].to_excel(writer, index=False, sheet_name='Kardex_Global')
+        df_historico[[col for col in ['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'] if col in df_historico.columns]].to_excel(writer, index=False, sheet_name='Kardex_Global')
     
     st.sidebar.write("---")
     st.sidebar.download_button(label="📥 DESCARGAR KARDEX GLOBAL (.XLSX)", data=buffer.getvalue(), file_name="Kardex_Global.xlsx", use_container_width=True)
 else:
-    st.caption("No hay movimientos registrados en la nube aún.") 
+    st.caption("No hay movimientos registrados en la nube aún.")

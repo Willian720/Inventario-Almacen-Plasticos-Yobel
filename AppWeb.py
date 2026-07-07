@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import io
 import json
-from datetime import datetime, timezone, timedelta # <-- Aquí está el reloj ajustado para Perú
+from datetime import datetime, timezone, timedelta
 
 # 1. Configuración profesional de la página
 st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="centered")
@@ -13,11 +13,10 @@ st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="cente
 # ====================================================================================
 URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
 
-# ⚠️ RECUERDA COLOCAR AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
+# ⚠️ PEGA AQUÍ TU NUEVA URL DE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
 URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
 # ====================================================================================
 
-# --- 🎯 FUNCIÓN DE BLINDAJE LOGÍSTICO (Elimina .0 y devuelve el cero inicial) ---
 def normalizar_codigo_articulo(sku):
     if pd.isna(sku) or str(sku).strip() == "":
         return ""
@@ -34,7 +33,6 @@ def generar_url_export(url_usuario):
 
 URL_FINAL_CSV = generar_url_export(URL_HOJA_DE_CALCULO)
 
-# --- 2. CARGA DEL MAESTRO DESDE GOOGLE SHEETS ---
 @st.cache_data(ttl=5)
 def cargar_maestro_nube():
     try:
@@ -55,7 +53,6 @@ def cargar_maestro_nube():
             
             df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
             df['DESCRIPCIÓN'] = df['DESCRIPCIÓN'].astype(str).str.strip()
-            
             df['LÓGICO'] = df['LÓGICO'].astype(str).str.strip().str.replace('.', '', regex=False).str.replace(',', '', regex=False)
             df['LÓGICO'] = pd.to_numeric(df['LÓGICO'], errors='coerce').fillna(0).astype(int)
             
@@ -66,10 +63,9 @@ def cargar_maestro_nube():
 
 df_maestro = cargar_maestro_nube()
 
-# --- 3. LECTURA DEL KARDEX DESDE LA NUBE ---
 def obtener_historico_nube():
     if "TU_URL_DE_APPS_SCRIPT_AQUI" in URL_APPS_SCRIPT:
-        return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
+        return pd.DataFrame(columns=['HORA', 'RACK', 'NIVEL', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
     try:
         response = requests.get(URL_APPS_SCRIPT, timeout=5)
         if response.status_code == 200:
@@ -77,15 +73,13 @@ def obtener_historico_nube():
             if data:
                 df = pd.DataFrame(data)
                 df.columns = [str(c).upper() for c in df.columns]
-                
                 if 'ARTICULO' in df.columns:
                     df['ARTICULO'] = df['ARTICULO'].apply(normalizar_codigo_articulo).str.upper()
                 return df
     except:
         pass
-    return pd.DataFrame(columns=['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
+    return pd.DataFrame(columns=['HORA', 'RACK', 'NIVEL', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'])
 
-# --- 4. LÓGICA DE PROCESAMIENTO DE ESCANEO ---
 def ejecutar_conteo_sku():
     sku_input = normalizar_codigo_articulo(st.session_state.scanner.strip().upper())
     if not sku_input: return
@@ -96,17 +90,20 @@ def ejecutar_conteo_sku():
         if not match.empty:
             sku_real = match.iloc[0]['ARTICULO']
             st.session_state.sku_activo = sku_real
+            
+            # Capturamos todos los datos de la pantalla
+            rack_input = st.session_state.rack_paso
+            nivel_input = st.session_state.nivel_paso
             cant_unidades = int(st.session_state.cantidad_paso)
             lote_input = st.session_state.lote_paso.strip().upper() if st.session_state.lote_paso.strip() else "SIN LOTE"
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
-            
-            # Calculamos la hora de Perú (UTC-5)
             hora_peru = datetime.now(timezone(timedelta(hours=-5)))
             
-            # 📦 Paquete que viaja a Google Drive
             payload = {
                 "hora": hora_peru.strftime("%d/%m/%Y %H:%M:%S"),
+                "rack": rack_input,
+                "nivel": nivel_input,
                 "articulo": sku_real,
                 "descripcion": desc_prod,
                 "lote": lote_input,
@@ -115,9 +112,9 @@ def ejecutar_conteo_sku():
             }
             
             try:
-                if "TU_URL_DE_APPS_SCRIPT_AQUI" not in URL_APPS_SCRIPT:
+                if "TU_URL" not in URL_APPS_SCRIPT:
                     requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
-                st.session_state.feedback = f"✅ Sincronizado en la Nube: +{cant_unidades} und (Lote: {lote_input}) para {desc_prod}"
+                st.session_state.feedback = f"✅ Ubicación {rack_input}-{nivel_input}: +{cant_unidades} und (Lote: {lote_input}) para {desc_prod}"
             except:
                 st.session_state.feedback = "❌ Error de red al enviar a la nube."
         else:
@@ -129,16 +126,18 @@ def ejecutar_conteo_por_boton():
         sku_real = st.session_state.sku_activo
         match = df_maestro[df_maestro['ARTICULO'] == sku_real]
         if not match.empty:
+            rack_input = st.session_state.rack_paso
+            nivel_input = st.session_state.nivel_paso
             cant_unidades = int(st.session_state.cantidad_paso)
             lote_input = st.session_state.lote_paso.strip().upper() if st.session_state.lote_paso.strip() else "SIN LOTE"
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
-            
-            # Calculamos la hora de Perú (UTC-5)
             hora_peru = datetime.now(timezone(timedelta(hours=-5)))
             
             payload = {
                 "hora": hora_peru.strftime("%d/%m/%Y %H:%M:%S"),
+                "rack": rack_input,
+                "nivel": nivel_input,
                 "articulo": sku_real,
                 "descripcion": desc_prod,
                 "lote": lote_input,
@@ -146,9 +145,9 @@ def ejecutar_conteo_por_boton():
                 "operario": op_actual
             }
             try:
-                if "TU_URL_DE_APPS_SCRIPT_AQUI" not in URL_APPS_SCRIPT:
+                if "TU_URL" not in URL_APPS_SCRIPT:
                     requests.post(URL_APPS_SCRIPT, data=json.dumps(payload), timeout=5)
-                st.session_state.feedback = f"✅ Añadido a la Nube: +{cant_unidades} und (Lote: {lote_input}) para {desc_prod}"
+                st.session_state.feedback = f"✅ Añadido a la Nube ({rack_input}-{nivel_input}): +{cant_unidades} und para {desc_prod}"
             except:
                 st.session_state.feedback = "❌ Error de red al sumar unidades."
 
@@ -157,7 +156,6 @@ if df_maestro.empty:
     st.warning("🔄 Sincronizando con Google Sheets...")
     st.stop()
 
-# CONTROL DE ACCESO
 if 'username' not in st.session_state or not st.session_state.username.strip():
     st.title("📦 Yobel SCM - Registro Cloud")
     nombre_input = st.text_input("Ingrese su Nombre y Apellido:", key="temp_name")
@@ -174,8 +172,17 @@ if st.sidebar.button("Cerrar Sesión"):
     st.session_state.sku_activo = None
     st.rerun()
 
-st.markdown("### 📥 Captura de Datos")
+st.markdown("### 📥 Ubicación del Producto")
+# Agregamos los selectores de Rack y Nivel
+col_r, col_n = st.columns(2)
+with col_r:
+    lista_racks = ["1", "2", "3", "4", "5", "F75-3", "PREFORMAS", "HORIZONTAL"]
+    st.selectbox("RACK:", options=lista_racks, key="rack_paso")
+with col_n:
+    lista_niveles = ["1er", "2do", "3er", "4to"]
+    st.selectbox("NIVEL:", options=lista_niveles, key="nivel_paso")
 
+st.markdown("### 📥 Captura de Datos")
 col_cant, col_lote, col_scan = st.columns([1, 1.5, 2.5])
 with col_cant:
     st.number_input("Cantidad:", min_value=1, value=1, step=1, key="cantidad_paso")
@@ -192,7 +199,6 @@ if 'sku_activo' in st.session_state and st.session_state.sku_activo:
 if 'feedback' in st.session_state:
     st.info(st.session_state.feedback)
 
-# TRAER HISTORIAL RECIENTE
 df_historico = obtener_historico_nube()
 
 st.write("---")
@@ -213,14 +219,15 @@ if 'sku_activo' in st.session_state and st.session_state.sku_activo:
     with c2: 
         st.metric(label="📊 Stock Lógico", value=f"{info_maestro['LÓGICO']:,}".replace(",", "."))
     with c3: 
-        st.metric(label="📦 Acumulado Nube (Todos)", value=f"{int(total_acumulado):,}".replace(",", "."))
+        st.metric(label="📦 Acumulado Nube", value=f"{int(total_acumulado):,}".replace(",", "."))
 else:
     st.info("💡 Escanee un artículo para desplegar su ficha de auditoría.")
 
 st.write("---")
 st.subheader("🕒 Kardex Global (Movimientos en tiempo real)")
 if not df_historico.empty and 'HORA' in df_historico.columns:
-    columnas_visibles = ['HORA', 'ARTICULO', 'LOTE', 'CANTIDAD', 'OPERARIO']
+    # Mostramos las columnas incluyendo Rack y Nivel
+    columnas_visibles = ['HORA', 'RACK', 'NIVEL', 'ARTICULO', 'LOTE', 'CANTIDAD']
     columnas_validas = [col for col in columnas_visibles if col in df_historico.columns]
     
     df_mostrar = df_historico[columnas_validas].copy()
@@ -230,7 +237,7 @@ if not df_historico.empty and 'HORA' in df_historico.columns:
     
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_historico[[col for col in ['HORA', 'ARTICULO', 'DESCRIPCIÓN', 'LOTE', 'CANTIDAD', 'OPERARIO'] if col in df_historico.columns]].to_excel(writer, index=False, sheet_name='Kardex_Global')
+        df_historico.to_excel(writer, index=False, sheet_name='Kardex_Global')
     
     st.sidebar.write("---")
     st.sidebar.download_button(label="📥 DESCARGAR KARDEX GLOBAL (.XLSX)", data=buffer.getvalue(), file_name="Kardex_Global.xlsx", use_container_width=True)

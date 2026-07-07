@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta # <-- Aquí está el reloj ajustado para Perú
 
 # 1. Configuración profesional de la página
 st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="centered")
@@ -11,10 +11,10 @@ st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="cente
 # ====================================================================================
 # 🛠️ SECCIÓN DE ENLACES: MANTÉN AQUÍ TUS URLS OFICIALES
 # ====================================================================================
-URL_HOJA_DE_CALCULO = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
+URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
 
 # ⚠️ RECUERDA COLOCAR AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
-URL_APPS_SCRIPT = "TU_URL_DE_APPS_SCRIPT_AQUI"
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
 # ====================================================================================
 
 # --- 🎯 FUNCIÓN DE BLINDAJE LOGÍSTICO (Elimina .0 y devuelve el cero inicial) ---
@@ -101,9 +101,12 @@ def ejecutar_conteo_sku():
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
             
-            # 📦 Se añade la variable 'lote' al paquete que viaja a Google Drive
+            # Calculamos la hora de Perú (UTC-5)
+            hora_peru = datetime.now(timezone(timedelta(hours=-5)))
+            
+            # 📦 Paquete que viaja a Google Drive
             payload = {
-                "hora": datetime.now().strftime("%H:%M:%S"),
+                "hora": hora_peru.strftime("%d/%m/%Y %H:%M:%S"),
                 "articulo": sku_real,
                 "descripcion": desc_prod,
                 "lote": lote_input,
@@ -132,9 +135,8 @@ def ejecutar_conteo_por_boton():
             op_actual = st.session_state.username.strip()
             
             # Calculamos la hora de Perú (UTC-5)
-            from datetime import datetime, timezone, timedelta
             hora_peru = datetime.now(timezone(timedelta(hours=-5)))
-
+            
             payload = {
                 "hora": hora_peru.strftime("%d/%m/%Y %H:%M:%S"),
                 "articulo": sku_real,
@@ -174,7 +176,6 @@ if st.sidebar.button("Cerrar Sesión"):
 
 st.markdown("### 📥 Captura de Datos")
 
-# Repartimos la fila en 3 columnas: Cantidad, Lote y Escáner
 col_cant, col_lote, col_scan = st.columns([1, 1.5, 2.5])
 with col_cant:
     st.number_input("Cantidad:", min_value=1, value=1, step=1, key="cantidad_paso")
@@ -219,9 +220,7 @@ else:
 st.write("---")
 st.subheader("🕒 Kardex Global (Movimientos en tiempo real)")
 if not df_historico.empty and 'HORA' in df_historico.columns:
-    # Mostramos las columnas incluyendo LOTE de manera ordenada
     columnas_visibles = ['HORA', 'ARTICULO', 'LOTE', 'CANTIDAD', 'OPERARIO']
-    # Filtro por si alguna fila vieja de la nube no tiene la columna Lote armada
     columnas_validas = [col for col in columnas_visibles if col in df_historico.columns]
     
     df_mostrar = df_historico[columnas_validas].copy()

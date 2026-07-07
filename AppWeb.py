@@ -11,10 +11,10 @@ st.set_page_config(page_title="Yobel WMS - Conteo Cíclico Cloud", layout="cente
 # ====================================================================================
 # 🛠️ SECCIÓN DE ENLACES: MANTÉN AQUÍ TUS URLS OFICIALES
 # ====================================================================================
-URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
+URL_HOJA_DE_CALCULO = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
 
 # ⚠️ RECUERDA COLOCAR AQUÍ TU URL DE GOOGLE APPS SCRIPT (LA QUE TERMINA EN /EXEC)
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
+URL_APPS_SCRIPT = "TU_URL_DE_APPS_SCRIPT_AQUI"
 # ====================================================================================
 
 # --- 🎯 FUNCIÓN DE BLINDAJE LOGÍSTICO (Elimina .0 y devuelve el cero inicial) ---
@@ -131,8 +131,12 @@ def ejecutar_conteo_por_boton():
             desc_prod = match.iloc[0]['DESCRIPCIÓN']
             op_actual = st.session_state.username.strip()
             
+            # Calculamos la hora de Perú (UTC-5)
+            from datetime import datetime, timezone, timedelta
+            hora_peru = datetime.now(timezone(timedelta(hours=-5)))
+
             payload = {
-                "hora": datetime.now().strftime("%H:%M:%S"),
+                "hora": hora_peru.strftime("%d/%m/%Y %H:%M:%S"),
                 "articulo": sku_real,
                 "descripcion": desc_prod,
                 "lote": lote_input,

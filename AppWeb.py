@@ -12,8 +12,7 @@ st.set_page_config(page_title="YOBEL - Almacén Plásticos", layout="centered")
 # 🛠️ SECCIÓN DE ENLACES: MANTÉN AQUÍ TUS URLS OFICIALES
 # ====================================================================================
 URL_HOJA_DE_CALCULO = "https://docs.google.com/spreadsheets/d/1UbjMP0OtiikjaCo9Ykr8kdOeB63VyFBJNB8RJDuDqXE/edit?gid=0#gid=0"
-URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"
-CAPACIDAD_TOTAL_POSICIONES = 180
+URL_APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbwz585fxOLSU4SfbfkD26b30ZXs5SrqqIWGGFkeDt6d4zdP50xntyVgkiGnXNabIHrlVg/exec"      
 # ====================================================================================
 
 # --- FUNCIONES DE APOYO (Normalización y Carga) ---
@@ -142,19 +141,13 @@ st.markdown("### 📥 Captura")
 c_c, c_l, c_s = st.columns([1, 1.5, 2.5])
 with c_c: st.number_input("Cant:", min_value=1, value=1, key="cantidad_paso")
 with c_l: st.text_input("Lote:", value="", placeholder="Ej: 3377887", key="lote_paso")
-with c_s: st.text_input("Código:", key="scanner", on_change=ejecutar_conteo_sku)
+with c_s: st.text_input("Codigo:", key="scanner", on_change=ejecutar_conteo_sku)
 
 if 'feedback' in st.session_state: st.info(st.session_state.feedback)
 
 # Métricas e Inspección (Sección UCA)
 df_historico = obtener_historico_nube()
 st.write("---")
-if not df_historico.empty and 'RACK' in df_historico.columns:
-    pos_ocupadas = df_historico.groupby(['RACK', 'NIVEL']).size().shape[0]
-    uca = (pos_ocupadas / CAPACIDAD_TOTAL_POSICIONES) * 100
-    m1, m2 = st.columns(2)
-    m1.metric("📈 UCA (Utilización)", f"{uca:.1f}%")
-    m2.metric("📍 Posiciones", f"{pos_ocupadas} / {CAPACIDAD_TOTAL_POSICIONES}")
 
 # Kardex y Tabla
 if not df_historico.empty:

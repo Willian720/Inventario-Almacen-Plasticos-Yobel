@@ -108,11 +108,11 @@ if 'username' not in st.session_state or not st.session_state.username.strip():
         
         # Título Estilizado
         st.markdown("""
-            <h1 style='text-align: center; color: #E24A44; font-family: sans-serif; font-size: 32px; margin-top: -10px;'>
+            <h1 style='text-align: center; color: #000000; font-family: tahoma; font-size: 32px; margin-top: -10px;'>
                 ALMACÉN PLÁSTICOS
             </h1>
-            <p style='text-align: center; color: #666; font-size: 18px;'>Registro de Conteo Cíclico Cloud</p>
-            <hr style='border: 1px solid #E24A44;'>
+            <p style='text-align: center; color: #000000; font-size: 18px;'>Registro de Conteo Cíclico</p>
+            <hr style='border: 1px solid #000000;'>
         """, unsafe_allow_html=True)
 
     # Formulario de ingreso

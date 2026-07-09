@@ -104,7 +104,7 @@ if 'username' not in st.session_state or not st.session_state.username.strip():
     
     with col_logo2:
         # Logo oficial horizontal de Yobel
-        st.image("https://yobel.biz/wp-content/uploads/2023/11/logo_yobel_negro.png", use_container_width=True)
+        st.image("https://ii.ct-stc.com/3/logos/empresas/2025/12/05/yobel-supply-chain-management-sa-BA7800713145E8A3181330thumbnail.png", use_container_width=True)
         
         # Título Estilizado
         st.markdown("""

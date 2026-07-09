@@ -126,8 +126,8 @@ if 'username' not in st.session_state or not st.session_state.username.strip():
 # ====================================================================================
 # 🚀 INTERFAZ PRINCIPAL (DESPUÉS DEL LOGIN)
 # ====================================================================================
-st.markdown(f"<h2 style='color: #E24A44;'>📦 YOBEL - Control de Inventario</h2>", unsafe_allow_html=True)
-st.sidebar.markdown(f"### 👤 Operario:\n**{st.session_state.username}**")
+st.markdown(f"<h2 style='color: #000000;'> Control de Inventario</h2>", unsafe_allow_html=True)
+st.sidebar.markdown(f"### 👤 Colaborador:\n**{st.session_state.username}**")
 if st.sidebar.button("Cerrar Sesión"):
     st.session_state.username = ""
     st.rerun()
@@ -135,14 +135,14 @@ if st.sidebar.button("Cerrar Sesión"):
 # --- Resto del código (Ubicación, Captura, Métricas) ---
 st.markdown("### 📥 Ubicación")
 col_r, col_n = st.columns(2)
-with col_r: st.selectbox("RACK:", options=["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"], key="rack_paso")
-with col_n: st.selectbox("NIVEL:", options=["1","2","3","4","5","6","7","Piso"], key="nivel_paso")
+with col_r: st.selectbox("RACK:", options=["1", "2", "3","4","5","F75-3","Preformas","Horizontal"], key="rack_paso")
+with col_n: st.selectbox("NIVEL:", options=["1er","2do","3er","4to"], key="nivel_paso")
 
 st.markdown("### 📥 Captura")
 c_c, c_l, c_s = st.columns([1, 1.5, 2.5])
 with c_c: st.number_input("Cant:", min_value=1, value=1, key="cantidad_paso")
-with c_l: st.text_input("Lote:", value="", placeholder="Ej: L2026", key="lote_paso")
-with c_s: st.text_input("Escanear SKU:", key="scanner", on_change=ejecutar_conteo_sku)
+with c_l: st.text_input("Lote:", value="", placeholder="Ej: 3377887", key="lote_paso")
+with c_s: st.text_input("Código:", key="scanner", on_change=ejecutar_conteo_sku)
 
 if 'feedback' in st.session_state: st.info(st.session_state.feedback)
 
